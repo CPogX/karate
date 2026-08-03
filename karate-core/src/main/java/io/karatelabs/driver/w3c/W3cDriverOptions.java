@@ -62,13 +62,28 @@ public class W3cDriverOptions implements DriverOptions {
     private final String executable;
     private final int port;
     private final List<String> addOptions;
+    private final boolean bidi;
+    private final Object transportProxy;
+    private final String bidiWebSocketUrl;
+    private final boolean rewriteWebSocketUrl;
 
     @SuppressWarnings("unchecked")
     private W3cDriverOptions(Map<String, Object> map) {
         String type = (String) map.getOrDefault("type", "chromedriver");
-        this.browserType = W3cBrowserType.fromType(type);
+        this.bidi = "bidi".equalsIgnoreCase(type) || toBool(map.get("bidi"), false);
+        Map<String, Object> configuredCapabilities = (Map<String, Object>) map.get("capabilities");
+        String browserName = firstNonBlank((String) map.get("browserName"), (String) map.get("browser"),
+                configuredCapabilities == null ? null : (String) configuredCapabilities.get("browserName"));
+        W3cBrowserType resolvedBrowser = bidi ? W3cBrowserType.fromBrowserName(browserName)
+                : W3cBrowserType.fromType(type);
+        if (resolvedBrowser == null && bidi) {
+            resolvedBrowser = W3cBrowserType.fromType(type);
+        }
+        this.browserType = resolvedBrowser;
         if (this.browserType == null) {
-            throw new IllegalArgumentException("Unknown W3C driver type: " + type);
+            throw new IllegalArgumentException(bidi
+                    ? "BiDi driver requires browserName (chrome, firefox, MicrosoftEdge, or safari)"
+                    : "Unknown W3C driver type: " + type);
         }
 
         this.timeout = toInt(map.get("timeout"), 30000);
@@ -84,7 +99,7 @@ public class W3cDriverOptions implements DriverOptions {
 
         this.webDriverUrl = (String) map.get("webDriverUrl");
         this.webDriverSession = (Map<String, Object>) map.get("webDriverSession");
-        this.capabilities = (Map<String, Object>) map.get("capabilities");
+        this.capabilities = configuredCapabilities;
         this.start = toBool(map.get("start"), true);
         this.executable = (String) map.get("executable");
         this.port = toInt(map.get("port"), browserType.getDefaultPort());
@@ -94,6 +109,9 @@ public class W3cDriverOptions implements DriverOptions {
         } else {
             this.addOptions = new ArrayList<>();
         }
+        this.transportProxy = map;
+        this.bidiWebSocketUrl = (String) map.get("bidiWebSocketUrl");
+        this.rewriteWebSocketUrl = toBool(map.get("rewriteWebSocketUrl"), true);
     }
 
     /**
@@ -112,7 +130,18 @@ public class W3cDriverOptions implements DriverOptions {
     public Map<String, Object> buildSessionPayload() {
         // Full override
         if (webDriverSession != null) {
-            return new HashMap<>(webDriverSession);
+            Map<String, Object> session = new HashMap<>(webDriverSession);
+            if (bidi) {
+                Map<String, Object> caps = session.get("capabilities") instanceof Map<?, ?> value
+                        ? new HashMap<>((Map<String, Object>) value) : new HashMap<>();
+                Map<String, Object> alwaysMatch = caps.get("alwaysMatch") instanceof Map<?, ?> value
+                        ? new HashMap<>((Map<String, Object>) value) : new HashMap<>();
+                alwaysMatch.put("webSocketUrl", true);
+                alwaysMatch.putIfAbsent("unhandledPromptBehavior", "ignore");
+                caps.put("alwaysMatch", alwaysMatch);
+                session.put("capabilities", caps);
+            }
+            return session;
         }
 
         Map<String, Object> session = new HashMap<>();
@@ -125,6 +154,10 @@ public class W3cDriverOptions implements DriverOptions {
         // Merge user-provided capabilities
         if (capabilities != null) {
             alwaysMatch.putAll(capabilities);
+        }
+        if (bidi) {
+            alwaysMatch.put("webSocketUrl", true);
+            alwaysMatch.putIfAbsent("unhandledPromptBehavior", "ignore");
         }
 
         caps.put("alwaysMatch", alwaysMatch);
@@ -226,6 +259,35 @@ public class W3cDriverOptions implements DriverOptions {
 
     public String getScope() {
         return scope;
+    }
+
+    /** Returns whether the session should attach a WebDriver BiDi channel. */
+    public boolean isBidi() {
+        return bidi;
+    }
+
+    /** Returns the complete config used for transport proxy selection. */
+    public Object getTransportProxy() {
+        return transportProxy;
+    }
+
+    /** Returns an explicit BiDi endpoint override, if configured. */
+    public String getBidiWebSocketUrl() {
+        return bidiWebSocketUrl;
+    }
+
+    /** Returns whether private/loopback Grid endpoint authorities should be made externally reachable. */
+    public boolean isRewriteWebSocketUrl() {
+        return rewriteWebSocketUrl;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     @Override

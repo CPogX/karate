@@ -35,6 +35,7 @@ import io.karatelabs.driver.Keys;
 import io.karatelabs.driver.Locators;
 import io.karatelabs.driver.Mouse;
 import io.karatelabs.driver.PageLoadStrategy;
+import io.karatelabs.driver.bidi.BidiDriver;
 import io.karatelabs.output.LogContext;
 import io.karatelabs.process.ProcessBuilder;
 import io.karatelabs.process.ProcessHandle;
@@ -80,12 +81,21 @@ public class W3cDriver implements Driver {
         }
     }
 
-    private final W3cSession session;
-    private final W3cDriverOptions options;
-    private final ProcessHandle driverProcess;
-    private volatile boolean terminated = false;
+    protected final W3cSession session;
+    protected final W3cDriverOptions options;
+    protected final ProcessHandle driverProcess;
+    protected volatile boolean terminated = false;
 
-    private W3cDriver(W3cSession session, W3cDriverOptions options, ProcessHandle driverProcess) {
+    /**
+     * Session and optional local driver process created by the common W3C bootstrap.
+     *
+     * @param session active WebDriver session
+     * @param process local driver process, or {@code null} for a remote session
+     */
+    protected record StartedSession(W3cSession session, ProcessHandle process) { }
+
+    /** Constructor for the W3C backend and protocol extensions such as BiDi. */
+    protected W3cDriver(W3cSession session, W3cDriverOptions options, ProcessHandle driverProcess) {
         this.session = session;
         this.options = options;
         this.driverProcess = driverProcess;
@@ -99,25 +109,37 @@ public class W3cDriver implements Driver {
      */
     public static W3cDriver start(Map<String, Object> config) {
         W3cDriverOptions opts = W3cDriverOptions.fromMap(config);
-        if (opts.isRemote()) {
-            return connect(opts.getWebDriverUrl(), opts);
+        if (opts.isBidi()) {
+            return BidiDriver.start(opts);
         }
-        return launch(opts);
+        StartedSession started = startSession(opts);
+        return new W3cDriver(started.session(), opts, started.process());
     }
 
     /**
      * Connect to an existing WebDriver server (remote hub, SauceLabs, etc.).
      */
     public static W3cDriver connect(String webDriverUrl, W3cDriverOptions opts) {
+        if (opts.isBidi()) {
+            return BidiDriver.connect(webDriverUrl, opts);
+        }
         logger.info("Connecting to W3C WebDriver at: {}", webDriverUrl);
-        W3cSession session = W3cSession.create(webDriverUrl, opts.buildSessionPayload(), opts.getTimeoutDuration());
+        W3cSession session = W3cSession.create(webDriverUrl, opts.buildSessionPayload(),
+                opts.getTimeoutDuration(), opts.getTransportProxy());
         return new W3cDriver(session, opts, null);
     }
 
     /**
-     * Launch a local WebDriver process and create a session.
+     * Creates a remote session or launches a local WebDriver process.
+     * Protocol extensions use this to share the exact W3C lifecycle.
      */
-    private static W3cDriver launch(W3cDriverOptions opts) {
+    protected static StartedSession startSession(W3cDriverOptions opts) {
+        if (opts.isRemote()) {
+            logger.info("Connecting to W3C WebDriver at: {}", opts.getWebDriverUrl());
+            W3cSession session = W3cSession.create(opts.getWebDriverUrl(), opts.buildSessionPayload(),
+                    opts.getTimeoutDuration(), opts.getTransportProxy());
+            return new StartedSession(session, null);
+        }
         W3cBrowserType browserType = opts.getBrowserType();
         int port = opts.getPort();
         String executable = opts.getExecutable();
@@ -146,8 +168,9 @@ public class W3cDriver implements Driver {
             logger.info("{} started on port {}", executable, port);
 
             String baseUrl = "http://localhost:" + port;
-            W3cSession session = W3cSession.create(baseUrl, opts.buildSessionPayload(), opts.getTimeoutDuration());
-            return new W3cDriver(session, opts, process);
+            W3cSession session = W3cSession.create(baseUrl, opts.buildSessionPayload(),
+                    opts.getTimeoutDuration(), opts.getTransportProxy());
+            return new StartedSession(session, process);
         } catch (RuntimeException e) {
             process.close(true);
             throw new DriverException("Failed to start " + executable + ": " + e.getMessage(), e);

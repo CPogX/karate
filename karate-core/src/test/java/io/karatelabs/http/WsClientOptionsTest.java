@@ -26,12 +26,33 @@ package io.karatelabs.http;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class WsClientOptionsTest {
+
+    @Test
+    void urlCredentialsBecomeBasicAuthorizationHeader() {
+        WsClientOptions options = WsClientOptions.builder("wss://user:p%40ss@example.test/session/1")
+                .build();
+
+        String expected = Base64.getEncoder().encodeToString("user:p@ss".getBytes(StandardCharsets.UTF_8));
+        assertEquals("Basic " + expected, options.getHeaders().get("Authorization"));
+    }
+
+    @Test
+    void explicitAuthorizationHeaderWinsOverUrlCredentials() {
+        WsClientOptions options = WsClientOptions.builder("wss://user:pass@example.test/session/1")
+                .header("authorization", "Bearer token")
+                .build();
+
+        assertEquals("Bearer token", options.getHeaders().get("authorization"));
+        assertEquals(1, options.getHeaders().size());
+    }
 
     @Test
     void testDefaultsForWs() {
@@ -129,6 +150,17 @@ class WsClientOptionsTest {
         assertThrows(IllegalArgumentException.class, () -> {
             WsClientOptions.builder((URI) null);
         });
+    }
+
+    @Test
+    void testExplicitProxyResolution() {
+        WsClientOptions options = WsClientOptions.builder("wss://grid.example/session")
+                .proxy(Map.of("webSocketProxy", "socks5://proxy.example:1080"))
+                .build();
+
+        assertNotNull(options.getProxySettings());
+        assertEquals(ProxySettings.Type.SOCKS5, options.getProxySettings().getType());
+        assertEquals("proxy.example", options.getProxySettings().getHost());
     }
 
 }

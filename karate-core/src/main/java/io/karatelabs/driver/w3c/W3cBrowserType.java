@@ -79,6 +79,20 @@ public enum W3cBrowserType {
         return BY_TYPE.get(type);
     }
 
+    /** Resolves a browser by its W3C {@code browserName} capability. */
+    public static W3cBrowserType fromBrowserName(String browserName) {
+        if (browserName == null) {
+            return null;
+        }
+        for (W3cBrowserType value : values()) {
+            if (value.browserName.equalsIgnoreCase(browserName)
+                    || (value == MSEDGEDRIVER && "edge".equalsIgnoreCase(browserName))) {
+                return value;
+            }
+        }
+        return null;
+    }
+
     public String getKarateType() {
         return karateType;
     }

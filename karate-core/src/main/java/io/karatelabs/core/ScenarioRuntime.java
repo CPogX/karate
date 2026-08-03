@@ -1931,7 +1931,8 @@ public class ScenarioRuntime implements Callable<ScenarioResult>, KarateJsContex
 
         // Determine driver type and parse scope
         String driverType = (String) configMap.getOrDefault("type", "chrome");
-        boolean isW3c = io.karatelabs.driver.w3c.W3cBrowserType.isW3cType(driverType);
+        boolean isW3c = "bidi".equalsIgnoreCase(driverType)
+                || io.karatelabs.driver.w3c.W3cBrowserType.isW3cType(driverType);
 
         if (isW3c) {
             io.karatelabs.driver.w3c.W3cDriverOptions w3cOptions = io.karatelabs.driver.w3c.W3cDriverOptions.fromMap(configMap);

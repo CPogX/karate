@@ -448,7 +448,7 @@ See [DESIGN.md § Built-in Tags](./DESIGN.md#built-in-tags) and `ScenarioLockMan
 
 ## Browser Automation (UI Tests)
 
-V2 uses a rewritten driver with CDP (Chrome DevTools Protocol) as the primary backend and full W3C WebDriver support for cross-browser testing.
+V2 uses a rewritten driver with CDP (Chrome DevTools Protocol) as the primary backend, full W3C WebDriver support, and a WebDriver BiDi extension for cross-browser streaming features.
 
 ### Driver Configuration
 
@@ -474,6 +474,29 @@ function fn() {
 | `geckodriver` | W3C | Firefox via geckodriver |
 | `safaridriver` | W3C | Safari (macOS only) |
 | `msedgedriver` | W3C | Microsoft Edge |
+| `bidi` | W3C + BiDi | Chrome, Firefox, or Edge on a local/remote Grid; requires `browserName` |
+
+BiDi uses the W3C backend for ordinary commands and the negotiated
+`webSocketUrl` for interception, prompt events, and PDF printing:
+
+```javascript
+karate.configure('driver', {
+  type: 'bidi',
+  browserName: 'firefox',
+  webDriverUrl: 'https://grid.example/wd/hub',
+  capabilities: {
+    // vendor tunnel options remain provider-specific and pass through unchanged
+    'vendor:options': { tunnelName: 'team-tunnel' }
+  },
+  // optional Karate-to-Grid transport settings
+  httpProxy: 'http://proxy.example:8080',
+  webSocketProxy: 'socks5://proxy.example:1080'
+});
+```
+
+Explicit transport settings override JVM proxy properties, which override
+`HTTPS_PROXY` / `HTTP_PROXY` / `ALL_PROXY`. `NO_PROXY` and JVM non-proxy host
+patterns are honored. Set `proxy: false` to force direct Grid connections.
 
 ### Gherkin Syntax (unchanged)
 

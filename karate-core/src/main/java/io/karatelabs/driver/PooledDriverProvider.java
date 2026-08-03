@@ -423,7 +423,7 @@ public class PooledDriverProvider implements DriverProvider {
      */
     protected Driver createDriver(Map<String, Object> config) {
         String type = (String) config.getOrDefault("type", "chrome");
-        if (W3cBrowserType.isW3cType(type)) {
+        if ("bidi".equalsIgnoreCase(type) || W3cBrowserType.isW3cType(type)) {
             return W3cDriver.start(config);
         }
         // CDP (default)

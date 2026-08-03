@@ -13,7 +13,7 @@
 | **9c** | PooledDriverProvider (browser reuse) | ✅ Complete |
 | **10** | Playwright Backend | ⬜ Not started |
 | **11** | W3C WebDriver Backend | ✅ Complete (100% pass, separate `w3c` Maven profile + CI job) |
-| **12** | WebDriver BiDi (Future) | ⬜ Not started |
+| **12** | WebDriver BiDi | ✅ Complete (Chrome, Firefox, Edge; Grid + pooling matrix) |
 | **13** | Cloud Provider Integration | ⬜ Not started |
 
 **Deferred:** Capabilities query API, Video recording (→ commercial app), karate-robot
@@ -1056,9 +1056,63 @@ the main `build` job:
 
 ### WebDriver BiDi (Phase 12)
 
-- Add when spec matures (2025+)
-- Combines WebDriver compatibility with CDP-like streaming
-- May be obtained "for free" via Playwright if they adopt BiDi
+WebDriver BiDi is implemented as an extension of the W3C backend. Stable command
+operations (elements, cookies, windows, uploads, screenshots, actions, and
+session lifecycle) remain on classic WebDriver. Streaming operations use the
+standard BiDi WebSocket returned in the `webSocketUrl` session capability.
+
+```javascript
+// Explicit BiDi type for a remote Grid or cloud provider
+karate.configure('driver', {
+  type: 'bidi',
+  browserName: 'firefox', // chrome, firefox, or MicrosoftEdge
+  webDriverUrl: 'http://localhost:4444'
+});
+
+// Existing W3C configuration can opt in without changing its type
+karate.configure('driver', {
+  type: 'chromedriver',
+  bidi: true,
+  webDriverUrl: 'http://localhost:4444'
+});
+```
+
+Implemented BiDi operations:
+
+- correlated concurrent commands and serialized event delivery
+- navigation, reload, and history traversal while interception is active
+- `driver.intercept()` with inline handlers or Karate feature mocks
+- `onDialog()` prompt events and prompt text/accept/dismiss support
+- `pdf()` via `browsingContext.print`
+- first-class pooled sessions through `PooledDriverProvider`
+- externally reachable endpoint normalization when a Docker/Grid returns a
+  private or loopback `webSocketUrl`; set `rewriteWebSocketUrl: false` to keep
+  the negotiated endpoint unchanged, or use `bidiWebSocketUrl` to override it
+
+The Grid HTTP client and BiDi WebSocket client use the same transport proxy
+precedence:
+
+1. driver config: `httpProxy`, `webSocketProxy`, then `proxy`
+2. JVM properties: `http[s].proxyHost`, `http[s].proxyPort`,
+   `http.nonProxyHosts`, or SOCKS properties
+3. environment: `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, and `NO_PROXY`
+
+An explicit `false`, `direct`, `none`, or `off` disables inherited proxy
+settings. HTTP, SOCKS4, SOCKS5, credentials, and bypass patterns are supported.
+
+Cloud tunnels are complementary to these transport settings. Provider tunnel
+capabilities are passed through in `capabilities` unchanged and control traffic
+from the remote browser to the application under test. The proxy settings above
+control Karate's HTTP/WebSocket connections to the Grid. For local Docker, test
+applications are typically exposed as `host.docker.internal`; for a cloud
+provider, use the hostname made reachable by that provider's tunnel.
+
+The cross-browser matrix in `scripts/run-bidi-grid-matrix.*` validates Chrome,
+Firefox, and Edge against real Selenium standalone Grid containers. It covers a
+Karate feature mock receiving a real `/api/customers/{id}` request with query
+parameters, visible page assertions, prompt events, PDF output, and a two-session
+parallel pool. Safari remains on the classic W3C backend until Safari exposes
+the required BiDi modules consistently.
 
 ---
 

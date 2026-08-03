@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Customer Lookup</title>
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 760px; margin: 48px auto; color: #172033; }
+        form, #customer-card { padding: 24px; border: 1px solid #ccd4e0; border-radius: 12px; }
+        label { display: block; margin: 10px 0 4px; font-weight: 600; }
+        input, select, button { font: inherit; padding: 9px 12px; }
+        button { margin-top: 18px; color: white; background: #3157d5; border: 0; border-radius: 7px; }
+        #customer-card { display: none; margin-top: 20px; background: #f7f9ff; }
+        #status-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: #dff6e8; }
+        dt { font-weight: 700; } dd { margin: 0 0 10px; }
+        #error { color: #a11; font-weight: 700; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Customer Lookup</h1>
+    <p>Load a customer record from the application API.</p>
+    <form id="lookup-form">
+        <label for="customer-id">Customer ID</label>
+        <input id="customer-id" value="42">
+        <label for="status">Status</label>
+        <select id="status"><option>active</option><option>pending</option></select>
+        <label for="include">Related data</label>
+        <select id="include"><option>orders</option><option>profile</option></select>
+        <button id="load-customer" type="submit">Load Customer</button>
+    </form>
+    <p id="error" role="alert"></p>
+    <section id="customer-card" aria-live="polite">
+        <h2 id="customer-name"></h2>
+        <span id="status-badge"></span>
+        <dl>
+            <dt>ID from path</dt><dd id="path-id"></dd>
+            <dt>Status query</dt><dd id="status-query"></dd>
+            <dt>Include query</dt><dd id="include-query"></dd>
+            <dt>Data source</dt><dd id="data-source"></dd>
+        </dl>
+    </section>
+</main>
+<script>
+    document.getElementById('lookup-form').addEventListener('submit', async function (event) {
+        event.preventDefault();
+        const id = document.getElementById('customer-id').value;
+        const status = document.getElementById('status').value;
+        const include = document.getElementById('include').value;
+        const error = document.getElementById('error');
+        error.textContent = '';
+        try {
+            const response = await fetch('/api/customers/' + encodeURIComponent(id)
+                + '?status=' + encodeURIComponent(status) + '&include=' + encodeURIComponent(include));
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const customer = await response.json();
+            document.getElementById('customer-name').textContent = customer.name;
+            document.getElementById('status-badge').textContent = customer.status;
+            document.getElementById('path-id').textContent = customer.id;
+            document.getElementById('status-query').textContent = customer.receivedStatus;
+            document.getElementById('include-query').textContent = customer.receivedInclude;
+            document.getElementById('data-source').textContent = customer.source;
+            document.getElementById('customer-card').style.display = 'block';
+        } catch (e) {
+            error.textContent = 'Customer load failed: ' + e.message;
+        }
+    });
+</script>
+</body>
+</html>

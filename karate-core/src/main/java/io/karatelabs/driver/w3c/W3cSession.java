@@ -30,6 +30,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.Authenticator;
+import java.net.PasswordAuthentication;
+import java.net.ProxySelector;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -39,6 +42,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import io.karatelabs.http.ProxySettings;
 
 /**
  * W3C WebDriver HTTP session client.
@@ -60,12 +64,15 @@ public class W3cSession {
     private final String baseUrl;
     private final String sessionId;
     private final Duration timeout;
+    private final Map<String, Object> capabilities;
 
-    private W3cSession(HttpClient httpClient, String baseUrl, String sessionId, Duration timeout) {
+    private W3cSession(HttpClient httpClient, String baseUrl, String sessionId, Duration timeout,
+                       Map<String, Object> capabilities) {
         this.httpClient = httpClient;
         this.baseUrl = baseUrl;
         this.sessionId = sessionId;
         this.timeout = timeout;
+        this.capabilities = capabilities == null ? Map.of() : Map.copyOf(capabilities);
     }
 
     /**
@@ -78,9 +85,47 @@ public class W3cSession {
      */
     @SuppressWarnings("unchecked")
     public static W3cSession create(String baseUrl, Map<String, Object> sessionPayload, Duration timeout) {
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(timeout)
-                .build();
+        return create(baseUrl, sessionPayload, timeout, null);
+    }
+
+    /**
+     * Creates a session using direct/JVM/environment transport proxy resolution.
+     *
+     * @param baseUrl WebDriver server URL
+     * @param sessionPayload W3C session payload
+     * @param timeout request timeout
+     * @param proxyConfig explicit proxy or complete driver config map
+     * @return a new W3C session
+     */
+    public static W3cSession create(String baseUrl, Map<String, Object> sessionPayload, Duration timeout,
+                                    Object proxyConfig) {
+        URI baseUri = URI.create(baseUrl);
+        ProxySettings proxy = ProxySettings.resolve(baseUri, proxyConfig);
+        HttpClient.Builder clientBuilder = HttpClient.newBuilder().connectTimeout(timeout);
+        if (proxy != null) {
+            clientBuilder.proxy(new ProxySelector() {
+                @Override
+                public List<java.net.Proxy> select(URI uri) {
+                    return List.of(proxy.toJavaProxy());
+                }
+
+                @Override
+                public void connectFailed(URI uri, java.net.SocketAddress address, IOException error) {
+                    logger.warn("proxy connection failed for {} via {}: {}", uri, proxy.scrubbedUri(),
+                            error.getMessage());
+                }
+            });
+            if (proxy.getUsername() != null) {
+                clientBuilder.authenticator(new Authenticator() {
+                    @Override
+                    protected PasswordAuthentication getPasswordAuthentication() {
+                        return new PasswordAuthentication(proxy.getUsername(),
+                                (proxy.getPassword() == null ? "" : proxy.getPassword()).toCharArray());
+                    }
+                });
+            }
+        }
+        HttpClient client = clientBuilder.build();
 
         // Normalize baseUrl - remove trailing slash
         if (baseUrl.endsWith("/")) {
@@ -121,13 +166,26 @@ public class W3cSession {
             }
 
             logger.info("W3C session created: {}", sessionId);
-            return new W3cSession(client, baseUrl, sessionId, timeout);
+            Map<String, Object> capabilities = value.get("capabilities") instanceof Map<?, ?> map
+                    ? (Map<String, Object>) map : Map.of();
+            return new W3cSession(client, baseUrl, sessionId, timeout, capabilities);
         } catch (IOException | InterruptedException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
             throw new DriverException("WebDriver session create failed: " + e.getMessage(), e);
         }
+    }
+
+    /** Returns the session capabilities returned by the remote end. */
+    public Map<String, Object> getCapabilities() {
+        return capabilities;
+    }
+
+    /** Returns the negotiated WebDriver BiDi endpoint, or {@code null}. */
+    public String getWebSocketUrl() {
+        Object value = capabilities.get("webSocketUrl");
+        return value == null ? null : value.toString();
     }
 
     // ========== Navigation ==========

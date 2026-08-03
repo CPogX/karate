@@ -34,6 +34,10 @@ import io.netty.handler.codec.http.HttpHeaders;
 import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.websocketx.*;
 import io.netty.handler.codec.http.websocketx.extensions.compression.WebSocketClientCompressionHandler;
+import io.netty.handler.proxy.HttpProxyHandler;
+import io.netty.handler.proxy.ProxyHandler;
+import io.netty.handler.proxy.Socks4ProxyHandler;
+import io.netty.handler.proxy.Socks5ProxyHandler;
 import io.karatelabs.common.ThreadUtils;
 import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslContextBuilder;
@@ -159,6 +163,7 @@ public class WsClient {
 
         WsClientHandler handler = new WsClientHandler(this, handshaker);
         SslContext finalSslContext = sslContext;
+        ProxySettings proxySettings = options.getProxySettings();
 
         group = new MultiThreadIoEventLoopGroup(1, ThreadUtils.daemonFactory("ws-client-"), NioIoHandler.newFactory());
 
@@ -166,10 +171,15 @@ public class WsClient {
             Bootstrap bootstrap = new Bootstrap();
             bootstrap.group(group)
                     .channel(NioSocketChannel.class)
+                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS,
+                            Math.toIntExact(options.getConnectTimeout().toMillis()))
                     .handler(new ChannelInitializer<>() {
                         @Override
                         protected void initChannel(Channel ch) {
                             ChannelPipeline p = ch.pipeline();
+                            if (proxySettings != null) {
+                                p.addLast(createProxyHandler(proxySettings));
+                            }
                             if (finalSslContext != null) {
                                 p.addLast(finalSslContext.newHandler(ch.alloc(), host, port));
                             }
@@ -217,6 +227,22 @@ public class WsClient {
         } catch (Exception e) {
             throw new WsException(WsException.Type.CONNECT_FAILED, "connection failed: " + e.getMessage(), e);
         }
+    }
+
+    private static ProxyHandler createProxyHandler(ProxySettings proxy) {
+        return switch (proxy.getType()) {
+            case HTTP -> proxy.getUsername() == null
+                    ? new HttpProxyHandler(proxy.toSocketAddress())
+                    : new HttpProxyHandler(proxy.toSocketAddress(), proxy.getUsername(),
+                    proxy.getPassword() == null ? "" : proxy.getPassword());
+            case SOCKS4 -> proxy.getUsername() == null
+                    ? new Socks4ProxyHandler(proxy.toSocketAddress())
+                    : new Socks4ProxyHandler(proxy.toSocketAddress(), proxy.getUsername());
+            case SOCKS5 -> proxy.getUsername() == null
+                    ? new Socks5ProxyHandler(proxy.toSocketAddress())
+                    : new Socks5ProxyHandler(proxy.toSocketAddress(), proxy.getUsername(),
+                    proxy.getPassword());
+        };
     }
 
     // Connection state

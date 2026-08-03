@@ -26,7 +26,9 @@ package io.karatelabs.http;
 import io.netty.handler.ssl.SslContext;
 
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -51,12 +53,22 @@ public class WsClientOptions {
     private final Consumer<WsFrame> messageListener;
     private final Runnable closeListener;
     private final Consumer<Throwable> errorListener;
+    private final ProxySettings proxySettings;
 
     private WsClientOptions(Builder builder) {
         this.uri = builder.uri;
-        this.headers = builder.headers != null
-                ? Collections.unmodifiableMap(new LinkedHashMap<>(builder.headers))
-                : Collections.emptyMap();
+        Map<String, String> resolvedHeaders = builder.headers == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(builder.headers);
+        if (builder.uri.getUserInfo() != null && resolvedHeaders.keySet().stream()
+                .noneMatch(name -> "authorization".equalsIgnoreCase(name))) {
+            String basic = Base64.getEncoder().encodeToString(
+                    builder.uri.getUserInfo().getBytes(StandardCharsets.UTF_8));
+            resolvedHeaders.put("Authorization", "Basic " + basic);
+        }
+        this.headers = resolvedHeaders.isEmpty()
+                ? Collections.emptyMap()
+                : Collections.unmodifiableMap(resolvedHeaders);
         this.subProtocol = builder.subProtocol;
         this.compression = builder.compression;
         this.maxPayloadSize = builder.maxPayloadSize;
@@ -68,6 +80,7 @@ public class WsClientOptions {
         this.messageListener = builder.messageListener;
         this.closeListener = builder.closeListener;
         this.errorListener = builder.errorListener;
+        this.proxySettings = ProxySettings.resolve(builder.uri, builder.proxy);
     }
 
     public static Builder builder(String uri) {
@@ -149,6 +162,11 @@ public class WsClientOptions {
         return errorListener;
     }
 
+    /** Returns the resolved direct/JVM/environment proxy, or {@code null}. */
+    public ProxySettings getProxySettings() {
+        return proxySettings;
+    }
+
     public static class Builder {
 
         private final URI uri;
@@ -164,6 +182,7 @@ public class WsClientOptions {
         private Consumer<WsFrame> messageListener;
         private Runnable closeListener;
         private Consumer<Throwable> errorListener;
+        private Object proxy;
 
         private Builder(URI uri) {
             if (uri == null) {
@@ -223,6 +242,16 @@ public class WsClientOptions {
 
         public Builder trustAllCerts(boolean trust) {
             this.trustAllCerts = trust;
+            return this;
+        }
+
+        /**
+         * Sets explicit transport proxy configuration. A string URI, proxy map,
+         * or full driver config map is accepted. Use {@code false} or
+         * {@code "direct"} to disable JVM and environment proxy inheritance.
+         */
+        public Builder proxy(Object proxy) {
+            this.proxy = proxy;
             return this;
         }
 
